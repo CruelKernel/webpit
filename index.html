@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<head>
+  <title>Samsung PIT Partition</title>
+  <script src="KaitaiStream.js"></script>
+  <script src="SamsungSignature.js"></script>
+  <script src="SamsungPit.js"></script>
+  <style>
+    table {
+      border: 4px double black;
+      border-collapse: collapse;
+      font-family: monospace;
+      table-layout: fixed;
+    }
+    th {
+      text-align: left;
+      background: #ccc;
+      padding: 5px;
+      border: 1px solid black;
+    }
+    td {
+      padding: 3px;
+      border: 1px solid black;
+    }
+    .row-id {
+      width: 10%;
+    }
+    .row-name {
+      width: 50%;
+    }
+    .row-value {
+      width: 40%;
+    }
+  </style>
+</head>
+
+<body>
+  <center>
+    <h1>Samsung PIT Partition</h1>
+    </br>
+    <label for="file">Select PIT file:</label>
+    <input type="file" id="files" name="file"/>
+    </br>
+    <output id="info"></output>
+  </center>
+
+  <script>
+    var pit_file;
+
+    function add_line(name, value) {
+      return '<tr><td class="row-id"></td><td class="row-name">' + name + '</td><td class="row-value">' + value + '</td></tr>';
+    }
+
+    function to_hex(num) {
+      return '0x' + num.toString(16).toUpperCase().padStart(8, '0');
+    }
+
+    function expand_partition_info(element) {
+      if (element.nextElementSibling.style.display == 'none') {
+        element.nextElementSibling.style.display = 'table-row-group';
+      } else {
+        element.nextElementSibling.style.display = 'none';
+      }
+    }
+
+    function collapse_partition_info(element) {
+      if (!window.getSelection().toString()) {
+        element.style.display = 'none';
+      }
+    }
+
+    function dump_pit_info(e) {
+      let reader = new FileReader();
+
+      if (e.target.files.length == 0) {
+        document.getElementById('info').innerHTML = '';
+        pit_file = undefined;
+        return;
+      }
+      pit_file = e.target.files[0];
+
+      reader.onloadend = function (e) {
+        if (e.target.readyState == FileReader.DONE) {
+          let contents = e.target.result;
+          let output = ['<table>'];
+          let pit;
+
+          try {
+            pit = new SamsungPit(new KaitaiStream(contents));
+          } catch (e) {
+            document.getElementById('info').innerHTML = 'Error analysing the PIT file: ' + e;
+            return;
+          }
+
+          output.push('<tbody>');
+          output.push(add_line("Port", pit.port));
+          output.push(add_line("Format", pit.format));
+          output.push(add_line("Chip", pit.chip));
+          output.push(add_line("Unknown", pit.unknown4));
+
+          if (pit.signature) {
+            let sign = pit.signature;
+            output.push(add_line("Phone Model", sign.phoneModel));
+            output.push(add_line("Board", sign.board1));
+            output.push(add_line("Firmware", sign.firmwareVer));
+            output.push(add_line("Timestamp", sign.firmwareTimestamp));
+          }
+          output.push('</tbody>');
+
+          pit.partitions.forEach((p, idx) => {
+            output.push('<tbody onclick="expand_partition_info(this);">');
+            output.push('<tr><th>' + (idx + 1) + '</th><th>' +
+                        p.partitionName + '</th><th>' +
+                        p.flashFilename + '</th></tr>');
+            output.push('</tbody>');
+            output.push('<tbody style="display:none" onclick="collapse_partition_info(this);">');
+            output.push(add_line('Binary Type', p.binaryType));
+            output.push(add_line('Device Type', p.deviceType));
+            output.push(add_line('Identifier', p.identifier));
+            let attr = p.attributes.value;
+            if (p.attributes.stl) {
+              attr += " STL";
+            }
+            if (p.attributes.read) {
+              attr += " READ";
+            }
+            if (p.attributes.write) {
+              attr += " WRITE";
+            }
+            output.push(add_line('Attributes', attr));
+            let update_attr = p.updateAttributes.value;
+            if (p.updateAttributes.fota) {
+              update_attr += " FOTA";
+            }
+            if (p.updateAttributes.secure) {
+              update_attr += " SECURE";
+            }
+            output.push(add_line('Update Attribute', update_attr));
+            output.push(add_line('Block Size', to_hex(p.blockSizeOrOffset)));
+            output.push(add_line('Block Count', to_hex(p.blockCount)));
+            output.push(add_line('File Offset (Obsolete)', p.fileOffset));
+            output.push(add_line('File Size (Obsolete)', p.fileSize));
+            if (p.fotaFilename) {
+              output.push(add_line('FOTA FileName', p.fotaFilename));
+            }
+            output.push('</tbody>');
+          });
+
+          output.push('</table>');
+
+          document.getElementById('info').innerHTML = output.join('');
+        }
+      };
+
+      reader.onerror = function (e) {
+        document.getElementById('info').innerHTML = 'Error analysing the PIT file: ' + e.target.error.code;
+      };
+
+      reader.readAsArrayBuffer(pit_file);
+    }
+
+    document.getElementById('files').addEventListener('change', dump_pit_info, false);
+  </script>
+</body>
+
+</html>
